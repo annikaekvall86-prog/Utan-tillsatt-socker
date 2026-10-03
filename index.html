@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="sv" class="notranslate" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Utan tillsatt socker</title>
+<style>
+  :root {
+    --bg: #f3efe6;
+    --ink: #2a2622;
+    --muted: #7a736a;
+    --line: #e2dbd0;
+    --card: #fffdf8;
+    --fill: #3d6b52;
+    --fill-ink: #f7f4ee;
+    --today: #c4a574;
+    --shadow: 0 10px 30px rgba(42, 38, 34, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    padding: 28px 18px 48px;
+  }
+  main {
+    max-width: 420px;
+    margin: 0 auto;
+  }
+  header h1 {
+    font-size: 1.55rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+  }
+  .lead {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.98rem;
+  }
+  .streak {
+    margin: 22px 0 18px;
+    background: var(--card);
+    border-radius: 18px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .streak strong {
+    font-size: 1.35rem;
+    font-weight: 500;
+  }
+  button.undo {
+    font: inherit;
+    font-size: 0.95rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  button.undo:disabled {
+    color: #b7b0a6;
+    cursor: default;
+  }
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 8px 2px 12px;
+  }
+  .nav h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 500;
+    text-transform: lowercase;
+  }
+  .nav button {
+    font: inherit;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .nav button:disabled { opacity: 0.35; cursor: default; }
+  .weekdays, .grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+  }
+  .weekdays span {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+  }
+  .grid { margin-top: 8px; }
+  .day {
+    aspect-ratio: 1;
+    border: none;
+    border-radius: 12px;
+    background: var(--card);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+    position: relative;
+    box-shadow: 0 1px 0 rgba(42,38,34,0.04);
+  }
+  .day.out { visibility: hidden; }
+  .day.before {
+    background: transparent;
+    color: #c2bbb2;
+    box-shadow: none;
+    cursor: default;
+  }
+  .day.future { cursor: default; }
+  .day.on {
+    background: var(--fill);
+    color: var(--fill-ink);
+  }
+  .day.today:not(.on) {
+    box-shadow: inset 0 0 0 1.5px var(--today);
+  }
+  .day:focus-visible {
+    outline: 2px solid var(--fill);
+    outline-offset: 2px;
+  }
+  .hint {
+    margin: 22px 2px 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Utan tillsatt socker</h1>
+    <p class="lead" id="lead">En ruta per dag.</p>
+  </header>
+  <section class="streak">
+    <strong id="streak">Ingen rad än</strong>
+    <button class="undo" id="undo" type="button" disabled>Ångra</button>
+  </section>
+  <div class="nav">
+    <button type="button" id="prev" aria-label="Föregående månad">‹</button>
+    <h2 id="month"></h2>
+    <button type="button" id="next" aria-label="Nästa månad">›</button>
+  </div>
+  <div class="weekdays" aria-hidden="true">
+    <span>må</span><span>ti</span><span>on</span><span>to</span><span>fr</span><span>lö</span><span>sö</span>
+  </div>
+  <div class="grid" id="grid"></div>
+  <p class="hint">Tryck på en dag för att bocka av. Tryck igen, eller på Ångra, om det blev fel.</p>
+</main>
+<script>
+const START = "2026-10-04";
+const KEY = "ruta-sockerfri-v1";
+const TZ = "Europe/Stockholm";
+
+const $ = (id) => document.getElementById(id);
+
+function todayISO() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(new Date());
+}
+
+function parseISO(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return { y, m, d };
+}
+
+function iso(y, m, d) {
+  return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+}
+
+function addDays(isoStr, n) {
+  const { y, m, d } = parseISO(isoStr);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return iso(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+}
+
+function load() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
+    return {
+      checked: new Set(Array.isArray(raw.checked) ? raw.checked : []),
+      undo: Array.isArray(raw.undo) ? raw.undo : []
+    };
+  } catch {
+    return { checked: new Set(), undo: [] };
+  }
+}
+
+function save() {
+  localStorage.setItem(KEY, JSON.stringify({
+    checked: [...state.checked],
+    undo: state.undo.slice(-30)
+  }));
+}
+
+let state = load();
+let today = todayISO();
+const start = parseISO(START);
+let viewY = Math.max(start.y, parseISO(today).y);
+let viewM = today < START ? start.m : parseISO(today).m;
+if (today < START) { viewY = start.y; viewM = start.m; }
+
+function streakCount() {
+  let end = today;
+  if (!state.checked.has(end)) end = addDays(today, -1);
+  if (end < START || !state.checked.has(end)) return 0;
+  let n = 0;
+  let cursor = end;
+  while (cursor >= START && state.checked.has(cursor)) {
+    n += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return n;
+}
+
+function renderStreak() {
+  const n = streakCount();
+  $("streak").textContent = n === 0 ? "Ingen rad än" : n === 1 ? "1 dag i rad" : `${n} dagar i rad`;
+  $("lead").textContent = today < START ? "Första rutan är 4 oktober." : "En ruta per dag.";
+  $("undo").disabled = state.undo.length === 0;
+}
+
+function monthLabel(y, m) {
+  const name = new Intl.DateTimeFormat("sv-SE", { month: "long", year: "numeric" }).format(new Date(y, m - 1, 1));
+  return name;
+}
+
+function render() {
+  today = todayISO();
+  renderStreak();
+  $("month").textContent = monthLabel(viewY, viewM);
+  const first = new Date(viewY, viewM - 1, 1);
+  const startPad = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(viewY, viewM, 0).getDate();
+  const grid = $("grid");
+  grid.replaceChildren();
+  for (let i = 0; i < startPad; i++) {
+    const blank = document.createElement("div");
+    blank.className = "day out";
+    grid.appendChild(blank);
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const id = iso(viewY, viewM, d);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "day";
+    btn.textContent = String(d);
+    const on = state.checked.has(id);
+    const before = id < START;
+    const future = id > today;
+    const open = !before && !future;
+    if (before) btn.classList.add("before");
+    if (future) btn.classList.add("future");
+    if (on) btn.classList.add("on");
+    if (open && id === today) btn.classList.add("today");
+    btn.disabled = !open;
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.setAttribute("aria-label", `${d} ${monthLabel(viewY, viewM)}${on ? ", ibockad" : ""}`);
+    if (open) btn.addEventListener("click", () => toggle(id));
+    grid.appendChild(btn);
+  }
+  const atStart = viewY === start.y && viewM === start.m;
+  $("prev").disabled = atStart;
+}
+
+function toggle(id) {
+  const was = state.checked.has(id);
+  if (was) state.checked.delete(id);
+  else state.checked.add(id);
+  state.undo.push({ id, was });
+  save();
+  render();
+}
+
+$("undo").addEventListener("click", () => {
+  const last = state.undo.pop();
+  if (!last) return;
+  if (last.was) state.checked.add(last.id);
+  else state.checked.delete(last.id);
+  save();
+  render();
+});
+
+$("prev").addEventListener("click", () => {
+  viewM -= 1;
+  if (viewM < 1) { viewM = 12; viewY -= 1; }
+  render();
+});
+$("next").addEventListener("click", () => {
+  viewM += 1;
+  if (viewM > 12) { viewM = 1; viewY += 1; }
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
